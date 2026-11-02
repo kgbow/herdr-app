@@ -41,7 +41,7 @@ on:
       - distribution/macos/dmg/**
       - scripts/ci-sources
       - .github/workflows/release.yml
-  # Builds only; publishing needs a tag.
+  # Upstream: builds only. Forks: publish through fork-release.yml.
   workflow_dispatch:
 
 permissions:
@@ -59,6 +59,14 @@ env:
   IS_TAG: ${{ github.ref_type == 'tag' }}
 
 jobs:
+  # Keep the existing default-branch UI entry usable without merging fork changes.
+  # Run workflow -> select the branch containing this dispatcher and fork-release.yml.
+  fork-release:
+    if: github.repository != 'herdrdev/herdr-app' && github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/fork-release.yml
+
   build:
     if: github.repository == 'herdrdev/herdr-app'
     strategy:
