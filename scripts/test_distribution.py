@@ -260,6 +260,18 @@ printf 'dev PATH added' >> "$3"''')
                     self.assertNotIn("unexpected build", result.stderr)
             notice.write_bytes(original)
 
+    def test_fork_packages_remove_inherited_release_marker(self):
+        self.stub("cargo", 'echo "release=${HERDR_APP_RELEASE-unset}"; exit 97')
+        for opt_out, expected in (("0", "unset"), ("1", "1")):
+            with self.subTest(package_release=opt_out):
+                env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
+                           TEST_OS="Linux", TEST_ARCH="x86_64",
+                           HERDR_APP_RELEASE="inherited", HERDR_APP_PACKAGE_RELEASE=opt_out)
+                result = subprocess.run([str(ROOT / "scripts/package")], cwd=ROOT,
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 97)
+                self.assertIn(f"release={expected}", result.stdout)
+
     def test_supported_packages_still_try_build(self):
         for os_name, arch in (("Darwin", "arm64"), ("Linux", "x86_64"), ("Linux", "aarch64")):
             with self.subTest(os=os_name, arch=arch):

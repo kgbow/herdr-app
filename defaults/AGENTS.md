@@ -625,6 +625,10 @@ What's about the user, never a look:
   version's notes, in the What's new window. Reading never clears the waiting-update dot.
   Rare spotlight releases open What’s new after restart, once; otherwise a
   quiet Updated pill lasts for that launch. A build from source never updates.
+  Fork GitHub Release packages also disable automatic app and core update checks;
+  replace the app with a newer fork download. Core installation and manual core
+  updates still use upstream. Setting `HERDR_RELEASES_URL` enables update checks
+  again, including app updates from that server.
   Curated notes come from the bundled root `CHANGELOG.md`; remote notes and
   media are optional. `update-notes.json` records the last successful app
   version and presented spotlights; `update-notes-cache.md` caches remote

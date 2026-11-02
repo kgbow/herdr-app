@@ -1,0 +1,166 @@
+# Fork packages use GitHub's token only: no website or signing credentials.
+name: fork releases
+run-name: fork release ${{ github.ref_name }}
+
+on:
+  push:
+    tags: ["fork-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: 1.95.0
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  build:
+    if: github.repository != 'herdrdev/herdr-app'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Linux on the oldest Ubuntu we can: the app links the system's
+          # glibc, so this sets how old a distro it runs on.
+          - { target: linux-x86_64, runner: ubuntu-22.04 }
+          - { target: linux-aarch64, runner: ubuntu-22.04-arm }
+          - { target: windows-x86_64, runner: windows-2022 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Restore build cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: fork-release-v1-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-zig${{ env.ZIG_VERSION }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            fork-release-v1-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-zig${{ env.ZIG_VERSION }}-${{ hashFiles('Cargo.lock') }}-
+            fork-release-v1-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-zig${{ env.ZIG_VERSION }}-
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libclang-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libvulkan-dev libfontconfig-dev libfreetype-dev
+      # bindgen's libclang: the runner image's LLVM.
+      - name: Windows build dependencies
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - name: Keep unchanged sources fresh
+        run: scripts/ci-sources restore
+      - name: Build and pack
+        env:
+          HERDR_APP_PACKAGE_RELEASE: "0"
+        run: scripts/package
+      - name: Verify release notices
+        run: |
+          archive="dist/herdr-app-${{ matrix.target }}.tar.gz"
+          prefix=herdr-app
+          tar -xOf "$archive" "$prefix/THIRD-PARTY-NOTICES" | cmp - THIRD-PARTY-NOTICES
+          tar -xOf "$archive" "$prefix/LICENSE" | cmp - LICENSE
+      - name: Note the sources the cache was built from
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/ci-sources record
+      - name: Save build cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: fork-release-v1-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-zig${{ env.ZIG_VERSION }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+      - name: Windows ZIP for direct extraction
+        if: runner.os == 'Windows'
+        run: |
+          python - <<'PYZIP'
+          import pathlib, tarfile, tempfile, zipfile
+          archive = pathlib.Path("dist/herdr-app-windows-x86_64")
+          with tempfile.TemporaryDirectory() as folder:
+              with tarfile.open(str(archive) + ".tar.gz") as source:
+                  source.extractall(folder, filter="data")
+              with zipfile.ZipFile(str(archive) + ".zip", "w", zipfile.ZIP_DEFLATED) as output:
+                  for path in sorted(pathlib.Path(folder).rglob("*")):
+                      if path.is_file():
+                          output.write(path, path.relative_to(folder))
+          PYZIP
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: herdr-app-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: herdr-app-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums and release notes
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          cd dist
+          sha256sum herdr-app-* > SHA256SUMS
+          cat > ../release-notes.md <<EOF
+          Unofficial fork build from commit $SOURCE_SHA.
+
+          - Windows x64: extract herdr-app-windows-x86_64.zip and run herdr-app.exe.
+          - Linux x64 / ARM64: extract the matching .tar.gz and run herdr-app/herdr-app.
+          - Linux requires a desktop session, Vulkan drivers and glibc 2.35 or newer.
+          - Packages include LICENSE and THIRD-PARTY-NOTICES; herdr-core is installed separately (the app can offer to install it).
+          - These builds are unsigned. App self-updates are disabled; download future builds from this repository. Core installation and manual updates still use upstream's server; automatic update checks are disabled for both app and core.
+          - SHA256SUMS covers every downloadable package.
+          EOF
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="fork-build-$GITHUB_RUN_ID"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leaving it unchanged."
+            exit 0
+          fi
+          gh release create "$tag" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Herdr fork ($tag)" \
+            --notes-file release-notes.md \
+            --latest=false

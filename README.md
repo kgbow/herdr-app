@@ -2,6 +2,19 @@
 
 Herdr is a desktop app for terminals and coding agents. Keep work in spaces, see which agents need you, and leave terminals running when you close the window.
 
+## Fork downloads (Windows and Linux)
+
+This fork can publish packages to its own [GitHub Releases](https://github.com/kgbow/herdr-app/releases), without Cloudflare, Apple or Azure credentials:
+
+- Windows x64: download `herdr-app-windows-x86_64.zip`, extract it and run `herdr-app.exe` inside the `herdr-app` folder.
+- Linux x64 / ARM64: download the matching `herdr-app-linux-*.tar.gz`, extract it and run `./herdr-app/herdr-app`. A desktop session, Vulkan drivers and glibc 2.35 or newer are required.
+- Check downloads against `SHA256SUMS`. Packages are unsigned and include license notices. They do not bundle herdr-core; the app can offer to install it from upstream.
+- Automatic app and core update checks are disabled in these packages. Download newer fork packages here; core installation and manual core updates still use the upstream server. Do not set `HERDR_RELEASES_URL` unless deliberately testing updates: that runtime override enables upstream update behavior again.
+
+To publish from your fork, enable GitHub Actions and merge this workflow into the default branch. Open **Actions → fork releases → Run workflow** and select the branch to build. A manual run creates a `fork-build-<run-id>` release. Alternatively, push a tag such as `fork-0.4.0-1` pointing at the commit to package; `fork-*` tags publish automatically. Rerunning a published release leaves its files unchanged. The workflow only needs GitHub's automatic `GITHUB_TOKEN` with `contents: write` for publishing; no extra secrets are needed. macOS packaging is omitted.
+
+The original website release workflow runs only in `herdrdev/herdr-app`. The upstream install commands below download official builds, rather than these fork packages.
+
 ## Install
 
 ### Linux and macOS

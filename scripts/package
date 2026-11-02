@@ -54,7 +54,13 @@ for notice in LICENSE THIRD-PARTY-NOTICES; do
   [[ -s $notice ]] || { echo "package: $notice is missing or empty" >&2; exit 1; }
 done
 # Only release builds update themselves (src/update.rs).
-HERDR_APP_RELEASE=1 cargo build --release --locked ${triple:+--target "$triple"}
+# HERDR_APP_PACKAGE_RELEASE=0 builds fork packages without automatic updates.
+# Fork packages opt out so an official update cannot replace the fork.
+build_env=(env HERDR_APP_RELEASE=1)
+if [[ ${HERDR_APP_PACKAGE_RELEASE:-1} == 0 ]]; then
+  build_env=(env -u HERDR_APP_RELEASE)
+fi
+"${build_env[@]}" cargo build --release --locked ${triple:+--target "$triple"}
 
 if [[ $os == linux ]]; then export TMPDIR=${TMPDIR:-/var/tmp}; fi
 work=$(mktemp -d)
